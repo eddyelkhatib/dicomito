@@ -134,9 +134,7 @@ class OpenCvWindow:
                                                         self.size,
                                                         self.first_slice,
                                                         self.last_slice)
-                    self.dicom_controller.read_dicoms()
-                    self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays()
-                    
+                    self.dicom_controller.read_dicoms()                    
 
         cv2.destroyAllWindows()
 
