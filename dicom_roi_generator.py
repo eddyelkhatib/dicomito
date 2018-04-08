@@ -1,16 +1,61 @@
+import tkinter
+from tkinter import filedialog
+from tkinter import messagebox
+from tkinter import *
 import numpy as np
 import pydicom
 import os
 import cv2
 import shutil
 
+class DicomMain:
+    def __init__(self):
+        self.root = Tk()
+        self.root.title("DICOM ROI GENERATOR")
+        self.root.geometry("500x100")
+        self.root.resizable(width=False, height=False)
+        self.menubar = Menu(self.root)
+        self.filemenu = Menu(self.menubar, tearoff=0)
+        self.filemenu.add_command(label="Open folder", command=self.launch)
+        self.filemenu.add_command(label="Exit", command=self.quit_everything)
+        self.menubar.add_cascade(label="File", menu=self.filemenu)
+        self.root.config(menu=self.menubar)
+        label = Label(self.root, text="\nVersion 0.9")
+        label2 = Label(self.root, text="Author : Eddy El Khatib")
+        label.pack()
+        label2.pack()
+        self.last_dir = '.'
+        
+    def mainloop(self):
+        self.root.mainloop()
+        
+    def launch(self):
+        folder_path = self.file_dialog()
+        check_suffix = lambda ss : any(s.lower().endswith('.dcm') for s in ss)
+        while folder_path != () and folder_path != "" and not check_suffix(os.listdir(folder_path)):
+            messagebox.showerror("Dicom not found", "No Dicom file was found in the selected folder")
+            self.last_dir = folder_path
+            folder_path = self.file_dialog()
+                          
+        if folder_path != () and folder_path != "":
+            self.last_dir = folder_path
+            OpenCvWindow(folder_path, self).run()
+    
+    def file_dialog(self):
+        return filedialog.askdirectory(initialdir=self.last_dir)
+    
+    def quit_everything(self):
+        self.root.quit
+
 class DicomController:
     def __init__(self, dir_path):
-        print(dir_path)
-        self.dir_path = dir_path
         self.dicoms = []
         if dir_path[-1] == '/':    
             self.ipp = dir_path[:-1]
+            self.dir_path = dir_path
+        else:
+            self.ipp = dir_path
+            self.dir_path = dir_path+'/'
         self.ipp = self.ipp[self.ipp.rfind('/')+1:]
         self.files_names = []
         self.read_dicoms()
@@ -22,6 +67,7 @@ class DicomController:
     
     def read_dicoms(self):
         self.files_names = sorted(os.listdir(self.dir_path))
+        self.files_names = [s for s in self.files_names if s.lower().endswith('.dcm')]
         for file in self.files_names :
             dicom = pydicom.dcmread(self.dir_path+file)
             self.dicoms.append(dicom)
@@ -41,8 +87,9 @@ class DicomController:
             
     
     def crop_and_save(self, path, center, size, first_slice, last_slice):
-        os.mkdir(path)
         x,y = center
+        if not os.path.exists(path):
+            os.mkdir(path)
         new_dicoms_pathes = self.copy_files(path, first_slice, last_slice)
         for new_dicom_path in new_dicoms_pathes :
             dc = pydicom.dcmread(new_dicom_path)
@@ -52,9 +99,9 @@ class DicomController:
             dc.save_as(new_dicom_path)
             
             
-
 class OpenCvWindow:
-    def __init__(self, dir_path):
+    def __init__(self, dir_path, tk_window):
+        self.tk_window = tk_window
         self.dicom_controller = DicomController(dir_path)
         self.window_name = self.dicom_controller.ipp
         self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays()
@@ -129,14 +176,19 @@ class OpenCvWindow:
                     if self.size - 1 >= 1:
                         cv2.setTrackbarPos('taille', self.window_name, self.size - 1)
                 elif key == ord('s'):
-                    self.dicom_controller.crop_and_save(self.dicom_controller.dir_path+"../"+self.window_name+"-cropped",
-                                                        self.rectangle_center,
-                                                        self.size,
-                                                        self.first_slice,
-                                                        self.last_slice)
-                    self.dicom_controller.read_dicoms()                    
+                    path = self.tk_window.file_dialog()
+                    if path != () and path != "" :
+                        path+='/'
+                        self.dicom_controller.crop_and_save(path,
+                                                            self.rectangle_center,
+                                                            self.size,
+                                                            self.first_slice,
+                                                            self.last_slice)                   
 
         cv2.destroyAllWindows()
+
+pouet = DicomMain()
+pouet.mainloop()
 
 w = OpenCvWindow('/home/orious/Bureau/test/178036-cropped/')
 w.run()
