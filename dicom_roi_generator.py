@@ -81,7 +81,7 @@ class DicomController:
     def copy_files(self, path, first_slice, last_slice):
         new_dicoms_pathes = []
         for i in range(last_slice - first_slice + 1):
-            new_path = shutil.copy(self.dir_path+self.files_names[i], path)
+            new_path = shutil.copy(self.dir_path+self.files_names[first_slice + i], path)
             new_dicoms_pathes.append(new_path)
         return new_dicoms_pathes
             
@@ -189,6 +189,3 @@ class OpenCvWindow:
 
 pouet = DicomMain()
 pouet.mainloop()
-
-w = OpenCvWindow('/home/orious/Bureau/test/178036-cropped/')
-w.run()
