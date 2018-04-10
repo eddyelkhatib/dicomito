@@ -45,7 +45,7 @@ class DicomMain:
         return filedialog.askdirectory(initialdir=self.last_dir)
     
     def quit_everything(self):
-        self.root.quit
+        self.root.quit()
 
 class DicomController:
     def __init__(self, dir_path):
@@ -97,8 +97,8 @@ class DicomController:
             dc.PixelData = cropped_array.tostring()
             dc.Rows, dc.Columns = cropped_array.shape
             dc.save_as(new_dicom_path)
-            
-            
+        messagebox.showinfo("Saved !", "The cropped dicom files have been successfully saved")
+        
 class OpenCvWindow:
     def __init__(self, dir_path, tk_window):
         self.tk_window = tk_window
@@ -116,10 +116,10 @@ class OpenCvWindow:
     
     def generate_elements(self):
         cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE | cv2.WINDOW_GUI_NORMAL)
-        cv2.createTrackbar('coupes', self.window_name, self.first_slice, self.last_slice, self.slice_tbcb)
+        cv2.createTrackbar('slices', self.window_name, self.first_slice, self.last_slice, self.slice_tbcb)
         cv2.createTrackbar('first', self.window_name, self.first_slice, self.last_slice, self.first_slice_tbcb)
         cv2.createTrackbar('last', self.window_name, self.first_slice, self.last_slice, self.last_slice_tbcb)
-        cv2.createTrackbar('taille', self.window_name, 1, 100, self.size_tbcb)
+        cv2.createTrackbar('size', self.window_name, 1, 100, self.size_tbcb)
     
     def slice_tbcb(self, x):
         self.index = x
@@ -133,16 +133,16 @@ class OpenCvWindow:
             x = self.last_slice - 1
             cv2.setTrackbarPos('first', self.window_name, x)
         self.first_slice = x
-        cv2.setTrackbarMin('coupes', self.window_name, x)
-        cv2.setTrackbarPos('coupes', self.window_name, x)
+        cv2.setTrackbarMin('slices', self.window_name, x)
+        cv2.setTrackbarPos('slices', self.window_name, x)
         
     def last_slice_tbcb(self, x):
         if x <= self.first_slice:
             x = self.first_slice + 1
             cv2.setTrackbarPos('last', self.window_name, x)
         self.last_slice = x
-        cv2.setTrackbarMax('coupes', self.window_name, x)
-        cv2.setTrackbarPos('coupes', self.window_name, x)
+        cv2.setTrackbarMax('slices', self.window_name, x)
+        cv2.setTrackbarPos('slices', self.window_name, x)
     
     def mouse_callback(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDBLCLK:
@@ -151,12 +151,11 @@ class OpenCvWindow:
         
     def configure_elements(self):
         cv2.setMouseCallback(self.window_name, self.mouse_callback)
-        cv2.setTrackbarMin('taille', self.window_name, 1)
-        cv2.setTrackbarPos('taille', self.window_name, self.size)
+        cv2.setTrackbarMin('size', self.window_name, 1)
+        cv2.setTrackbarPos('size', self.window_name, self.size)
         cv2.setTrackbarPos('last', self.window_name, self.last_slice)
-        cv2.setTrackbarPos('coupes', self.window_name, 0)
-
-    
+        cv2.setTrackbarPos('slices', self.window_name, 0)
+        
     def generate_crop_rectangles(self):
         x, y = self.rectangle_center
         self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays()
@@ -169,21 +168,15 @@ class OpenCvWindow:
             key = cv2.waitKey(1)
             if key == ord('q'):
                 break
-            else :
-                if key == ord('+'):
-                    cv2.setTrackbarPos('taille', self.window_name, self.size + 1)
-                elif key == ord('-'):
-                    if self.size - 1 >= 1:
-                        cv2.setTrackbarPos('taille', self.window_name, self.size - 1)
-                elif key == ord('s'):
-                    path = self.tk_window.file_dialog()
-                    if path != () and path != "" :
-                        path+='/'
-                        self.dicom_controller.crop_and_save(path,
-                                                            self.rectangle_center,
-                                                            self.size,
-                                                            self.first_slice,
-                                                            self.last_slice)                   
+            elif key == ord('s'):
+                path = self.tk_window.file_dialog()
+                if path != () and path != "" :
+                    path+='/'
+                    self.dicom_controller.crop_and_save(path,
+                                                        self.rectangle_center,
+                                                        self.size,
+                                                        self.first_slice,
+                                                        self.last_slice)                   
 
         cv2.destroyAllWindows()
 
