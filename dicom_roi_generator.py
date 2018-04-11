@@ -11,7 +11,7 @@ import shutil
 class DicomMain:
     def __init__(self):
         self.root = Tk()
-        self.root.title("DICOM ROI GENERATOR")
+        self.root.title("DICOM ROI EXTRACTOR")
         self.root.geometry("500x100")
         self.root.resizable(width=False, height=False)
         self.menubar = Menu(self.root)
