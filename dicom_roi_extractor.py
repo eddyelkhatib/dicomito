@@ -60,23 +60,31 @@ class DicomController:
         self.files_names = []
         self.read_dicoms()
         
-    def normalize(self, pixel_array):
-        max_value = np.amax(pixel_array)
-        min_value = np.unique(pixel_array.flatten())[3]
-        return (pixel_array - min_value) / (max_value - min_value)
+    def normalize(self, pixel_array, value_couple=None):
+        flat = np.unique(pixel_array.flatten())
+        if value_couple == None:
+            max_value = np.amax(pixel_array)
+            min_value = flat[0]
+        else :
+            min_value, max_value = value_couple
+            
+        divider = max_value - min_value
+        if divider == 0:
+            divider = 1
+        return (pixel_array - min_value) / divider
     
     def read_dicoms(self):
         self.files_names = sorted(os.listdir(self.dir_path))
         self.files_names = [s for s in self.files_names if s.lower().endswith('.dcm')]
         for file in self.files_names :
-            dicom = pydicom.dcmread(self.dir_path+file)
+            dicom = pydicom.dcmread(self.dir_path+file, force=True)
             self.dicoms.append(dicom)
             
     def gen_pixel_arrays(self):
-        return np.array([dcm.pixel_array for dcm in self.dicoms])
+        return np.array([dcm.pixel_array.copy() for dcm in self.dicoms])
     
-    def gen_normalized_pixel_arrays(self):
-        return [self.normalize(pxl_arr) for pxl_arr in self.gen_pixel_arrays()]
+    def gen_normalized_pixel_arrays(self,value_couple=None):
+        return [self.normalize(pxl_arr, value_couple) for pxl_arr in self.gen_pixel_arrays()]
     
     def copy_files(self, path, first_slice, last_slice):
         new_dicoms_pathes = []
@@ -92,7 +100,7 @@ class DicomController:
             os.mkdir(path)
         new_dicoms_pathes = self.copy_files(path, first_slice, last_slice)
         for new_dicom_path in new_dicoms_pathes :
-            dc = pydicom.dcmread(new_dicom_path)
+            dc = pydicom.dcmread(new_dicom_path, force=True)
             cropped_array = dc.pixel_array[y-size:y+size+1, x-size:x+size+1]
             dc.PixelData = cropped_array.tostring()
             dc.Rows, dc.Columns = cropped_array.shape
@@ -104,11 +112,14 @@ class OpenCvWindow:
         self.tk_window = tk_window
         self.dicom_controller = DicomController(dir_path)
         self.window_name = self.dicom_controller.ipp
-        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays()
+        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays(None)
         self.first_slice = 0
         self.last_slice = len(self.pixel_arrays) - 1
+        self.contrast_array = []
         self.rectangle_center = (0,0)
         self.size = 20
+        self.window_min = 0
+        self.window_max = 0
         self.generate_elements()
         self.configure_elements()
         self.index = 0
@@ -120,7 +131,25 @@ class OpenCvWindow:
         cv2.createTrackbar('first', self.window_name, self.first_slice, self.last_slice, self.first_slice_tbcb)
         cv2.createTrackbar('last', self.window_name, self.first_slice, self.last_slice, self.last_slice_tbcb)
         cv2.createTrackbar('size', self.window_name, 1, 100, self.size_tbcb)
+        self.contrast_array = np.unique(self.dicom_controller.gen_pixel_arrays().flatten())
+        cv2.createTrackbar('window_min', self.window_name, 0, len(self.contrast_array) - 1, self.change_window_first)
+        cv2.createTrackbar('window_max', self.window_name, 0, len(self.contrast_array) - 1, self.change_window_last)
+        cv2.setTrackbarPos('window_max', self.window_name, len(self.contrast_array) - 1)
     
+    def change_window_first(self, x):
+        if x >= self.window_max:
+            x = self.window_max - 1
+            cv2.setTrackbarPos('window_min', self.window_name, x)
+        self.window_min = x
+        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays((self.contrast_array[self.window_min], self.contrast_array[self.window_max]))
+        
+    def change_window_last(self, x):
+        if x <= self.window_min:
+            x = self.window_min + 1
+            cv2.setTrackbarPos('window_max', self.window_name, x)
+        self.window_max = x
+        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays((self.contrast_array[self.window_min], self.contrast_array[self.window_max]))
+        
     def slice_tbcb(self, x):
         self.index = x
     
@@ -158,7 +187,7 @@ class OpenCvWindow:
         
     def generate_crop_rectangles(self):
         x, y = self.rectangle_center
-        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays()
+        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays((self.contrast_array[self.window_min], self.contrast_array[self.window_max]))
         for pxl_arr in self.pixel_arrays:
              cv2.rectangle(pxl_arr, (x-self.size, y-self.size), (x+self.size, y+self.size),(0,255,0),1)
     
