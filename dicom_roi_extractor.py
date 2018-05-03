@@ -33,7 +33,8 @@ class DicomMain:
         folder_path = self.file_dialog()
         check_suffix = lambda ss : any(s.lower().endswith('.dcm') for s in ss)
         while folder_path != () and folder_path != "" and not check_suffix(os.listdir(folder_path)):
-            messagebox.showerror("Dicom not found", "No Dicom file was found in the selected folder")
+            messagebox.showerror("Dicom not found", 
+                                 "No Dicom file found in the folder")
             self.last_dir = folder_path
             folder_path = self.file_dialog()
                           
@@ -58,103 +59,124 @@ class DicomController:
             self.dir_path = dir_path+'/'
         self.ipp = self.ipp[self.ipp.rfind('/')+1:]
         self.files_names = []
-        self.read_dicoms()
+        self.slices = self.load_scan(dir_path)
+    
+    def get_pixels_hu(self):
+        # copied from https://www.kaggle.com/gzuidhof/full-preprocessing-tutorial
+        image = np.stack([s.pixel_array for s in self.slices])
+        # Convert to int16 (from sometimes int16), 
+        # should be possible as values should always be low enough (<32k)
+        image = image.astype(np.int16)
+    
+        # Set outside-of-scan pixels to 0
+        # The intercept is usually -1024, so air is approximately 0
+        image[image == -2000] = 0
         
-    def normalize(self, pixel_array, value_couple=None):
-        flat = np.unique(pixel_array.flatten())
-        if value_couple == None:
-            max_value = np.amax(pixel_array)
-            min_value = flat[0]
-        else :
-            min_value, max_value = value_couple
+        # Convert to Hounsfield units (HU)
+        for slice_nb in range(len(self.slices)):
             
-        divider = max_value - min_value
-        if divider == 0:
-            divider = 1
-        return (pixel_array - min_value) / divider
-    
-    def read_dicoms(self):
-        self.files_names = sorted(os.listdir(self.dir_path))
-        self.files_names = [s for s in self.files_names if s.lower().endswith('.dcm')]
-        for file in self.files_names :
-            dicom = pydicom.dcmread(self.dir_path+file, force=True)
-            self.dicoms.append(dicom)
+            intercept = self.slices[slice_nb].RescaleIntercept
+            slope = self.slices[slice_nb].RescaleSlope
             
-    def gen_pixel_arrays(self):
-        return np.array([dcm.pixel_array.copy() for dcm in self.dicoms])
-    
-    def gen_normalized_pixel_arrays(self,value_couple=None):
-        return [self.normalize(pxl_arr, value_couple) for pxl_arr in self.gen_pixel_arrays()]
-    
-    def copy_files(self, path, first_slice, last_slice):
-        new_dicoms_pathes = []
-        for i in range(last_slice - first_slice + 1):
-            new_path = shutil.copy(self.dir_path+self.files_names[first_slice + i], path)
-            new_dicoms_pathes.append(new_path)
-        return new_dicoms_pathes
+            if slope != 1:
+                image[slice_nb] = slope * image[slice_nb].astype(np.float64)
+                image[slice_nb] = image[slice_nb].astype(np.int16)
+                
+            image[slice_nb] += np.int16(intercept)
+        
+        return np.array(image, dtype=np.int16)
+
+    def load_scan(self, path):
+        files_names = sorted(os.listdir(path))
+        files_names = [s for s in files_names if s.lower().endswith('.dcm')]
+        self.files_names = files_names
+        slices = []
+        for file_name in files_names :
+            s = pydicom.dcmread(self.dir_path+file_name, force=True)
+            slices.append(s)
             
+        try:
+            slice_thickness = np.abs(slices[0].ImagePositionPatient[2] - 
+                                     slices[1].ImagePositionPatient[2])
+        except:
+            slice_thickness = np.abs(slices[0].SliceLocation - 
+                                     slices[1].SliceLocation)
+            
+        for s in slices:
+            s.SliceThickness = slice_thickness
+            
+        return slices
+    
+    def copy_files(self, path, fst_slice, lst_slice):
+        ndicoms_pathes = []
+        for i in range(lst_slice - fst_slice + 1):
+            new_path = shutil.copy(self.dir_path + 
+                                   self.files_names[fst_slice + i], path)
+            ndicoms_pathes.append(new_path)
+        return ndicoms_pathes       
     
     def crop_and_save(self, path, center, size, first_slice, last_slice):
         x,y = center
         if not os.path.exists(path):
             os.mkdir(path)
-        new_dicoms_pathes = self.copy_files(path, first_slice, last_slice)
-        for new_dicom_path in new_dicoms_pathes :
-            dc = pydicom.dcmread(new_dicom_path, force=True)
+        ndcm_pathes = self.copy_files(path, first_slice, last_slice)
+        for ndcm_path in ndcm_pathes :
+            dc = pydicom.dcmread(ndcm_path, force=True)
             cropped_array = dc.pixel_array[y-size:y+size+1, x-size:x+size+1]
             dc.PixelData = cropped_array.tostring()
             dc.Rows, dc.Columns = cropped_array.shape
-            dc.save_as(new_dicom_path)
-        messagebox.showinfo("Saved !", "The cropped dicom files have been successfully saved")
-        
+            dc.save_as(ndcm_path)
+        messagebox.showinfo("Saved !", 
+                            "Dicom files have been successfully saved")
+
 class OpenCvWindow:
     def __init__(self, dir_path, tk_window):
         self.tk_window = tk_window
         self.dicom_controller = DicomController(dir_path)
         self.window_name = self.dicom_controller.ipp
-        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays(None)
+        self.pixel_arrays = self.dicom_controller.get_pixels_hu()
+        self.original = self.pixel_arrays.copy()
         self.first_slice = 0
         self.last_slice = len(self.pixel_arrays) - 1
-        self.contrast_array = []
         self.rectangle_center = (0,0)
         self.size = 20
-        self.window_min = 0
-        self.window_max = 0
+        self.contrast_window_min = 0
+        self.contrast_window_max = 1000
         self.generate_elements()
         self.configure_elements()
         self.index = 0
         self.first_slice = 0
+        
     
     def generate_elements(self):
         cv2.namedWindow(self.window_name, cv2.WINDOW_AUTOSIZE | cv2.WINDOW_GUI_NORMAL)
         cv2.createTrackbar('slices', self.window_name, self.first_slice, self.last_slice, self.slice_tbcb)
         cv2.createTrackbar('first', self.window_name, self.first_slice, self.last_slice, self.first_slice_tbcb)
         cv2.createTrackbar('last', self.window_name, self.first_slice, self.last_slice, self.last_slice_tbcb)
-        cv2.createTrackbar('size', self.window_name, 1, 100, self.size_tbcb)
-        self.contrast_array = np.unique(self.dicom_controller.gen_pixel_arrays().flatten())
-        cv2.createTrackbar('window_min', self.window_name, 0, len(self.contrast_array) - 1, self.change_window_first)
-        cv2.createTrackbar('window_max', self.window_name, 0, len(self.contrast_array) - 1, self.change_window_last)
-        cv2.setTrackbarPos('window_max', self.window_name, len(self.contrast_array) - 1)
+        cv2.createTrackbar('size', self.window_name, 1, 20, self.size_tbcb)
+        cv2.createTrackbar('contrast_window_min', self.window_name, 0, 1000, self.change_window_first)
+        cv2.createTrackbar('contrast_window_max', self.window_name, 0, 1000, self.change_window_last)
+        cv2.setTrackbarPos('contrast_window_max', self.window_name, 1000)
     
     def change_window_first(self, x):
-        if x >= self.window_max:
-            x = self.window_max - 1
-            cv2.setTrackbarPos('window_min', self.window_name, x)
-        self.window_min = x
-        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays((self.contrast_array[self.window_min], self.contrast_array[self.window_max]))
+        x = x
+        if x >= self.contrast_window_max:
+            x = self.contrast_window_max - 1
+            cv2.setTrackbarPos('contrast_window_min', self.window_name, x)
+        self.contrast_window_min = x
         
     def change_window_last(self, x):
-        if x <= self.window_min:
-            x = self.window_min + 1
-            cv2.setTrackbarPos('window_max', self.window_name, x)
-        self.window_max = x
-        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays((self.contrast_array[self.window_min], self.contrast_array[self.window_max]))
+        x = x
+        if x <= self.contrast_window_min:
+            x = self.contrast_window_min + 1
+            cv2.setTrackbarPos('contrast_window_max', self.window_name, x)
+        self.contrast_window_max = x
         
     def slice_tbcb(self, x):
-        self.index = x
+        self.index = x 
     
     def size_tbcb(self, x):
-        self.size = x
+        self.size = x * 10
         self.generate_crop_rectangles()
     
     def first_slice_tbcb(self, x):
@@ -181,19 +203,19 @@ class OpenCvWindow:
     def configure_elements(self):
         cv2.setMouseCallback(self.window_name, self.mouse_callback)
         cv2.setTrackbarMin('size', self.window_name, 1)
-        cv2.setTrackbarPos('size', self.window_name, self.size)
+        cv2.setTrackbarPos('size', self.window_name, 1)
         cv2.setTrackbarPos('last', self.window_name, self.last_slice)
         cv2.setTrackbarPos('slices', self.window_name, 0)
         
     def generate_crop_rectangles(self):
+        self.pixel_arrays = self.original.copy()
         x, y = self.rectangle_center
-        self.pixel_arrays = self.dicom_controller.gen_normalized_pixel_arrays((self.contrast_array[self.window_min], self.contrast_array[self.window_max]))
         for pxl_arr in self.pixel_arrays:
-             cv2.rectangle(pxl_arr, (x-self.size, y-self.size), (x+self.size, y+self.size),(0,255,0),1)
+             cv2.rectangle(pxl_arr, (x-self.size, y-self.size), (x+self.size, y+self.size),(255,255,255),1)
     
     def run(self):
         while True:
-            cv2.imshow(self.window_name, self.pixel_arrays[self.index])
+            cv2.imshow(self.window_name, (self.pixel_arrays[self.index] - self.contrast_window_min) / (self.contrast_window_max - self.contrast_window_min) + 1)
             key = cv2.waitKey(1)
             if key == ord('q'):
                 break
