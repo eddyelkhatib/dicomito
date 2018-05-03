@@ -40,7 +40,9 @@ class DicomMain:
                           
         if folder_path != () and folder_path != "":
             self.last_dir = folder_path
-            OpenCvWindow(folder_path, self).run()
+            obj = OpenCvWindow(folder_path, self).run()
+            del obj
+        
     
     def file_dialog(self):
         return filedialog.askdirectory(initialdir=self.last_dir)
@@ -227,8 +229,9 @@ class OpenCvWindow:
                                                         self.rectangle_center,
                                                         self.size,
                                                         self.first_slice,
-                                                        self.last_slice)                   
-
+                                                        self.last_slice)
+        del self.original
+        del self.pixel_arrays
         cv2.destroyAllWindows()
 
 pouet = DicomMain()
