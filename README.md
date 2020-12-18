@@ -1,6 +1,6 @@
-# DICOM-ROI-EXTRACTOR v0.9
+# DICOMITO v0.9
 
-This is the preliminary version of the dicom-roi-generator utility program. This simple program provides the possibility to extract regions of interest from dicom files (eg. extract only the tumor from a CT scan).
+This is the preliminary version of the dicomito utility program. This simple program provides the possibility to extract regions of interest from dicom files (eg. extract only the tumor from a CT scan).
 
 ## Requirements
 
